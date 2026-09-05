@@ -22,7 +22,7 @@ import { Spinner } from "@/components/ui/spinner/Spinner";
 import { StateMessage } from "@/components/ui/state/StateMessage";
 import { useToast } from "@/components/ui/toast/ToastProvider";
 import { PAYOUT_STATUS_LABEL, PAYOUT_STATUS_TONE } from "@/lib/format/labels";
-import { formatCurrency, formatDate, formatDateTime, toDateInputValue } from "@/lib/format/number";
+import { formatCurrency, formatDate, formatDateTime, toDateInputValue, toPeriodEndIso } from "@/lib/format/number";
 import styles from "./payouts.module.css";
 
 interface PayoutsViewProps {
@@ -54,9 +54,13 @@ export function PayoutsView({ initialPayouts, managers }: PayoutsViewProps) {
   const generatePayouts = useGeneratePayouts();
   const sendBulkPayouts = useSendBulkPayouts();
 
+  // periodEnd is extended to the end of that day before it ever reaches the
+  // API: the backend does `createdAt <= new Date(periodEnd)`, and a bare
+  // date parses as midnight UTC — without this, a manager's deals made on
+  // the period's own last day would be silently excluded from the payout.
   const period: PayoutPeriodDto = {
     periodStart,
-    periodEnd,
+    periodEnd: toPeriodEndIso(periodEnd),
     managerId: periodManagerId || undefined,
   };
 

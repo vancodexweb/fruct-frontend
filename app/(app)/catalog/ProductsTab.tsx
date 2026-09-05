@@ -14,6 +14,7 @@ import { Checkbox } from "@/components/ui/checkbox/Checkbox";
 import { Modal } from "@/components/ui/modal/Modal";
 import { Field } from "@/components/ui/field/Field";
 import { Badge } from "@/components/ui/badge/Badge";
+import { Pagination } from "@/components/ui/pagination/Pagination";
 import { Spinner } from "@/components/ui/spinner/Spinner";
 import { StateMessage } from "@/components/ui/state/StateMessage";
 import { useToast } from "@/components/ui/toast/ToastProvider";
@@ -28,6 +29,8 @@ interface ProductsTabProps {
 
 type ModalState = { mode: "create" } | { mode: "edit"; product: Product };
 
+const PRODUCTS_LIMIT = 20;
+
 export function ProductsTab({ initialProducts, initialCategories }: ProductsTabProps) {
   const session = useSession();
   const isOwner = session.role === "OWNER";
@@ -40,21 +43,29 @@ export function ProductsTab({ initialProducts, initialCategories }: ProductsTabP
   const [search, setSearch] = useState("");
   const [categoryId, setCategoryId] = useState("");
   const [includeInactive, setIncludeInactive] = useState(false);
+  const [offset, setOffset] = useState(0);
   const [modalState, setModalState] = useState<ModalState | null>(null);
 
   const params: ListProductsQuery = {
     search: search || undefined,
     categoryId: categoryId || undefined,
     includeInactive: includeInactive || undefined,
+    limit: PRODUCTS_LIMIT,
+    offset,
   };
-  const isDefaultQuery = !search && !categoryId && !includeInactive;
+  const isDefaultQuery = !search && !categoryId && !includeInactive && offset === 0;
   const productsQuery = useProductsQuery(params, { initialData: isDefaultQuery ? initialProducts : undefined });
 
   const setActive = useSetProductActive();
 
+  function resetToFirstPage() {
+    setOffset(0);
+  }
+
   function handleSearchSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSearch(searchInput.trim());
+    resetToFirstPage();
   }
 
   const columns: TableColumn<Product>[] = [
@@ -132,7 +143,14 @@ export function ProductsTab({ initialProducts, initialCategories }: ProductsTabP
           </Button>
         </form>
 
-        <Select value={categoryId} onChange={(event) => setCategoryId(event.target.value)} aria-label="Фильтр по категории">
+        <Select
+          value={categoryId}
+          onChange={(event) => {
+            setCategoryId(event.target.value);
+            resetToFirstPage();
+          }}
+          aria-label="Фильтр по категории"
+        >
           <option value="">Все категории</option>
           {categories.map((category) => (
             <option key={category.id} value={category.id}>
@@ -144,7 +162,10 @@ export function ProductsTab({ initialProducts, initialCategories }: ProductsTabP
         <Checkbox
           label="Показать неактивные"
           checked={includeInactive}
-          onChange={(event) => setIncludeInactive(event.target.checked)}
+          onChange={(event) => {
+            setIncludeInactive(event.target.checked);
+            resetToFirstPage();
+          }}
         />
       </div>
 
@@ -155,7 +176,16 @@ export function ProductsTab({ initialProducts, initialCategories }: ProductsTabP
       ) : productsQuery.data.length === 0 ? (
         <StateMessage title="Товары не найдены" description="Попробуйте изменить фильтры или добавьте новый товар." />
       ) : (
-        <Table columns={columns} rows={productsQuery.data} rowKey={(product) => product.id} />
+        <>
+          <Table columns={columns} rows={productsQuery.data} rowKey={(product) => product.id} />
+          <Pagination
+            offset={offset}
+            limit={PRODUCTS_LIMIT}
+            currentCount={productsQuery.data.length}
+            onPrev={() => setOffset((value) => Math.max(0, value - PRODUCTS_LIMIT))}
+            onNext={() => setOffset((value) => value + PRODUCTS_LIMIT)}
+          />
+        </>
       )}
 
       {modalState ? (

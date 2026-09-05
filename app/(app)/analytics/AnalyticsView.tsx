@@ -28,7 +28,7 @@ import { Table, type TableColumn } from "@/components/ui/table/Table";
 import { Spinner } from "@/components/ui/spinner/Spinner";
 import { StateMessage } from "@/components/ui/state/StateMessage";
 import { LEAD_STATUS_LABEL } from "@/lib/format/labels";
-import { formatCurrency, formatDate, formatMinutes } from "@/lib/format/number";
+import { formatCurrency, formatDate, formatMinutes, toPeriodEndIso } from "@/lib/format/number";
 import { VerticalBarChart, HorizontalBarChart, type BarDatum } from "./BarChart";
 import styles from "./analytics.module.css";
 
@@ -78,18 +78,28 @@ export function AnalyticsView({
   const [groupByInput, setGroupByInput] = useState<GroupBy>("day");
   const [topProductsLimitInput, setTopProductsLimitInput] = useState(DEFAULT_TOP_PRODUCTS_LIMIT);
 
-  const [appliedPeriod, setAppliedPeriod] = useState<PeriodQuery>(initialPeriod);
+  // `periodEnd` here is always the end-of-day-adjusted value actually sent
+  // to the backend (see toPeriodEndIso) — the backend treats a bare date as
+  // midnight UTC, so an unadjusted upper bound would silently exclude
+  // everything created on that day itself. `initialPeriod` stays plain
+  // ("YYYY-MM-DD") since it also seeds the date <input>s above; defaultQueryPeriod
+  // re-derives the same adjustment so it compares like-for-like with appliedPeriod.
+  const defaultQueryPeriod: PeriodQuery = {
+    periodStart: initialPeriod.periodStart,
+    periodEnd: toPeriodEndIso(initialPeriod.periodEnd),
+  };
+  const [appliedPeriod, setAppliedPeriod] = useState<PeriodQuery>(defaultQueryPeriod);
   const [appliedGroupBy, setAppliedGroupBy] = useState<GroupBy>("day");
   const [appliedTopProductsLimit, setAppliedTopProductsLimit] = useState(DEFAULT_TOP_PRODUCTS_LIMIT);
 
   function handleApply() {
-    setAppliedPeriod({ periodStart: periodStartInput, periodEnd: periodEndInput });
+    setAppliedPeriod({ periodStart: periodStartInput, periodEnd: toPeriodEndIso(periodEndInput) });
     setAppliedGroupBy(groupByInput);
     setAppliedTopProductsLimit(clampLimit(topProductsLimitInput));
   }
 
   const isDefaultPeriod =
-    appliedPeriod.periodStart === initialPeriod.periodStart && appliedPeriod.periodEnd === initialPeriod.periodEnd;
+    appliedPeriod.periodStart === defaultQueryPeriod.periodStart && appliedPeriod.periodEnd === defaultQueryPeriod.periodEnd;
   const isDefaultRevenueQuery = isDefaultPeriod && appliedGroupBy === "day";
   const isDefaultTopProductsQuery = isDefaultPeriod && appliedTopProductsLimit === DEFAULT_TOP_PRODUCTS_LIMIT;
 

@@ -7,6 +7,7 @@ import {
   getSlaMetrics,
   getTopProducts,
 } from "@/lib/api/analytics";
+import { toPeriodEndIso } from "@/lib/format/number";
 import { AnalyticsView } from "./AnalyticsView";
 
 const DEFAULT_TOP_PRODUCTS_LIMIT = 10;
@@ -20,15 +21,22 @@ function last30DaysRange(): { periodStart: string; periodEnd: string } {
 }
 
 export default async function AnalyticsPage() {
+  // Plain "YYYY-MM-DD" — this is what seeds the date <input>s and what
+  // AnalyticsView compares against to decide whether the user is still on
+  // the default period. Every actual API call below extends periodEnd to
+  // the end of that day (see toPeriodEndIso) so today's own activity isn't
+  // silently excluded; AnalyticsView does the same adjustment client-side
+  // whenever the user applies a new period, so the two stay consistent.
   const period = last30DaysRange();
+  const queryPeriod = { periodStart: period.periodStart, periodEnd: toPeriodEndIso(period.periodEnd) };
 
   const [funnel, sla, revenue, topProducts, managers, purchaseDistribution] = await Promise.all([
-    getFunnel(serverApiFetch, period),
-    getSlaMetrics(serverApiFetch, period),
-    getRevenue(serverApiFetch, { ...period, groupBy: "day" }),
-    getTopProducts(serverApiFetch, { ...period, limit: DEFAULT_TOP_PRODUCTS_LIMIT }),
-    getManagersComparison(serverApiFetch, period),
-    getPurchaseDistribution(serverApiFetch, period),
+    getFunnel(serverApiFetch, queryPeriod),
+    getSlaMetrics(serverApiFetch, queryPeriod),
+    getRevenue(serverApiFetch, { ...queryPeriod, groupBy: "day" }),
+    getTopProducts(serverApiFetch, { ...queryPeriod, limit: DEFAULT_TOP_PRODUCTS_LIMIT }),
+    getManagersComparison(serverApiFetch, queryPeriod),
+    getPurchaseDistribution(serverApiFetch, queryPeriod),
   ]);
 
   return (

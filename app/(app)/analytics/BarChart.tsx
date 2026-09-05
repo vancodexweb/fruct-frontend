@@ -71,7 +71,13 @@ export function VerticalBarChart({ data, ariaLabel, color = "var(--accent)", for
   const bottomAxisHeight = 56;
   const topPadding = 12;
   const innerHeight = chartHeight - bottomAxisHeight - topPadding;
-  const vbWidth = data.length * (barWidth + barGap) + barGap;
+  // `width:100%; height:auto` scales the whole SVG uniformly to fill its
+  // container, so with too few bars the natural (data.length-driven) viewBox
+  // width becomes tiny relative to chartHeight — the aspect ratio blows up
+  // and the "auto" height ends up several times the container's own width.
+  // A floor keeps width:height from ever exceeding roughly a friendly 1.6:1.
+  const dataWidth = data.length * (barWidth + barGap) + barGap;
+  const vbWidth = Math.max(dataWidth, Math.round(chartHeight * 1.6));
   const showValueLabels = data.length <= MAX_LABELED_BARS;
   const format = formatValue ?? ((value: number) => String(value));
 

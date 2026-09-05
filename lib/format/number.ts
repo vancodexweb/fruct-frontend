@@ -57,3 +57,16 @@ export function toDateInputValue(value: string | Date): string {
   const date = typeof value === "string" ? new Date(value) : value;
   return date.toISOString().slice(0, 10);
 }
+
+/**
+ * Every period filter on the backend (analytics, payouts) does
+ * `createdAt <= new Date(periodEnd)`. A bare "YYYY-MM-DD" string parses as
+ * midnight UTC at the *start* of that day, so passing a date-only upper
+ * bound silently excludes everything created on that day itself — e.g. an
+ * OWNER picking "today" as the period end sees none of today's leads/deals.
+ * Extend a date-only string to the end of that UTC day before sending it as
+ * a periodEnd so "through this day" queries actually include it.
+ */
+export function toPeriodEndIso(dateOnly: string): string {
+  return `${dateOnly}T23:59:59.999Z`;
+}

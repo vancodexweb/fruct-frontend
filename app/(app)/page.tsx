@@ -5,13 +5,19 @@ import { listDeals } from "@/lib/api/deals";
 import { listNotifications } from "@/lib/api/notifications";
 import { getFunnel, getSlaMetrics } from "@/lib/api/analytics";
 import type { FunnelResponse, SlaMetricsResponse } from "@/types/analytics";
+import { toPeriodEndIso } from "@/lib/format/number";
 import { DashboardView } from "./DashboardView";
 
+/**
+ * `periodEnd` is extended to the end of today (see `toPeriodEndIso`) — the
+ * backend treats a bare date as midnight UTC, so without this, today's own
+ * leads/deals would silently be excluded from a "last 30 days" summary.
+ */
 function last30DaysRange(): { periodStart: string; periodEnd: string } {
   const end = new Date();
   const start = new Date();
   start.setDate(start.getDate() - 30);
-  return { periodStart: start.toISOString().slice(0, 10), periodEnd: end.toISOString().slice(0, 10) };
+  return { periodStart: start.toISOString().slice(0, 10), periodEnd: toPeriodEndIso(end.toISOString().slice(0, 10)) };
 }
 
 export default async function DashboardPage() {
