@@ -101,3 +101,7 @@
   color: var(--text-muted);
   font-size: 14px;
 }
+
+.addStockForm {
+  margin-bottom: var(--space-4);
+}
