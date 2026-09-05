@@ -69,10 +69,14 @@ export function usePayoutsQuery(
   });
 }
 
-export function usePayoutQuery(id: string): UseQueryResult<Payout, Error> {
+export function usePayoutQuery(
+  id: string,
+  options?: { initialData?: Payout },
+): UseQueryResult<Payout, Error> {
   return useQuery({
     queryKey: payoutsKeys.detail(id),
     queryFn: () => getPayout(clientApiFetch, id),
+    initialData: options?.initialData,
     staleTime: 30_000,
     enabled: Boolean(id),
   });

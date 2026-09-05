@@ -287,13 +287,15 @@ function RevenueSection({
             ariaLabel="Выручка по периодам"
             color="var(--success)"
             formatValue={(value) => formatCurrency(value)}
-            barLabel={(d) => d.title ?? ""}
             data={revenue.data.map((bucket) => {
               const value = Number(bucket.revenue);
               return {
                 key: bucket.periodStart,
                 label: formatDate(bucket.periodStart),
                 value: Number.isNaN(value) ? 0 : value,
+                // Deals count, not revenue, is the on-bar label: it's short at any bar count, while a
+                // formatted currency value would clutter once the period spans more than a couple of weeks.
+                secondaryLabel: String(bucket.dealsCount),
                 title: `${formatDate(bucket.periodStart)}: ${formatCurrency(bucket.revenue)}, сделок: ${bucket.dealsCount}`,
               } satisfies BarDatum;
             })}

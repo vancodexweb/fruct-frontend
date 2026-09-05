@@ -94,14 +94,15 @@ export function VerticalBarChart({ data, ariaLabel, color = "var(--accent)", for
           const barHeight = maxValue > 0 ? (d.value / maxValue) * innerHeight : 0;
           const x = barGap + index * (barWidth + barGap);
           const y = topPadding + (innerHeight - barHeight);
+          const label = d.secondaryLabel ?? (showValueLabels ? format(d.value) : undefined);
           return (
             <g key={d.key ?? d.label}>
               <path d={roundedTopRectPath(x, y, barWidth, barHeight, 4)} fill={color} className={styles.bar}>
                 <title>{d.title ?? `${d.label}: ${format(d.value)}`}</title>
               </path>
-              {showValueLabels ? (
+              {label !== undefined ? (
                 <text x={x + barWidth / 2} y={y - 6} textAnchor="middle" className={styles.valueLabel}>
-                  {format(d.value)}
+                  {label}
                 </text>
               ) : null}
               <text
