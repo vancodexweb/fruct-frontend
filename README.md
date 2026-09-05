@@ -85,9 +85,20 @@ docker compose -f docker-compose.prod.yml -f ../fruct-frontend/docker-compose.ym
 ```
 
 This merges the two compose files into a single project: it adds the `frontend` service and
-overrides `caddy`'s Caddyfile mount with `fruct-frontend/deploy/Caddyfile`, which proxies the
-public domain to `frontend:3000` instead of directly to `api:3001` — `caddy` ends up depending on
-both `api` and `frontend` being healthy before it starts routing traffic.
+overrides `caddy`'s Caddyfile mount with `fruct-frontend/deploy/Caddyfile` — a superset of the
+backend's own Caddyfile that keeps `{$DOMAIN} -> api:3001` (the backend's existing public domain,
+untouched) and adds a **separate** `{$FRONTEND_DOMAIN} -> frontend:3000` site block. Both domains
+are served by the one already-running Caddy container over the one already-published port 80/443
+— Caddy routes by TLS SNI/HTTP Host, so there's no new port to open and no conflict with the
+backend's existing setup. Caddy automatically issues each domain its own Let's Encrypt certificate
+the first time it's requested. `caddy` ends up depending on both `api` and `frontend` being
+healthy before it starts routing traffic.
+
+This was verified end-to-end (not just read from the config): `docker compose config` against the
+real backend + frontend compose files confirms `DOMAIN`/`ACME_EMAIL` (from the backend's `.env`)
+and `FRONTEND_DOMAIN` (from this repo's `.env`) all land correctly on the merged `caddy` service
+with no duplicated ports, and a live two-upstream Caddy test confirmed both domains get their own
+certificate and route to the correct backend.
 
 Verify:
 
@@ -107,11 +118,11 @@ To update after a `git pull` in either repo, re-run the same `up -d --build` com
 | `NODE_ENV` | yes | `production` in the deployed stack. |
 | `PORT` | yes | Port the Next.js server listens on inside its container (`3000`). |
 | `HOSTNAME` | yes | Interface to bind (`0.0.0.0` — required in Docker so the healthcheck and Caddy, a different container, can reach it). |
-| `API_URL` | yes | Base URL of the backend, **reachable from this server, never from the browser**. In the Docker stack: `http://api:3001` (the backend's own service name on the shared Compose network). For local dev without Docker: `http://localhost:3001`. |
+| `API_URL` | only outside Docker | Base URL of the backend, **reachable from this server, never from the browser**. In the Docker stack this is hardcoded to `http://api:3001` by `docker-compose.yml` (the backend's own service name on the shared Compose network) — this `.env` value is only read by `npm run dev`/`npm run start` outside Docker, where it should be `http://localhost:3001`. |
+| `FRONTEND_DOMAIN` | yes (Docker only) | The public domain this frontend should be reachable at, e.g. `app.example.com`. Point its DNS A/AAAA record at the server before deploying — Caddy issues it its own certificate automatically, independent of whatever domain the backend already serves the API on. |
 
-That's the entire frontend configuration surface — everything else (JWT secrets, SMTP, DeepSeek,
-the domain, Postgres/Redis credentials) belongs to the backend's own `.env` and is never touched
-by this app.
+Everything else (JWT secrets, SMTP, DeepSeek, the backend's own public `DOMAIN`, Postgres/Redis
+credentials) belongs to the backend's own `.env` and is never touched by this app.
 
 ## 4. Section-by-section overview
 

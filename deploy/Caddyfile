@@ -2,6 +2,18 @@
 	email {$ACME_EMAIL}
 }
 
+# The backend's own site block, unchanged from vancodexweb/fruct's Caddyfile —
+# kept here because this file *replaces* the mounted Caddyfile wholesale (same
+# mount target, last `-f` file wins), so it must still serve the API's existing
+# public domain, not just the frontend's.
 {$DOMAIN} {
+	reverse_proxy api:3001
+}
+
+# The frontend gets its own domain rather than taking over {$DOMAIN} — set
+# FRONTEND_DOMAIN in fruct-frontend/.env. Caddy issues it a separate
+# Let's Encrypt certificate automatically, on the same shared port 80/443
+# listener (TLS SNI routing — no extra ports, no conflict with {$DOMAIN} above).
+{$FRONTEND_DOMAIN} {
 	reverse_proxy frontend:3000
 }

@@ -10,11 +10,15 @@
 #
 # This merges the two files into a single project (named after the backend's
 # directory, e.g. "fruct"): it adds the `frontend` service, and overrides
-# `caddy`'s Caddyfile mount with the one in deploy/Caddyfile (which proxies
-# to `frontend:3000` instead of directly to `api:3001`), so `caddy` ends up
-# depending on both `api` and `frontend` being healthy. See README.md for the
-# full step-by-step, including the expected directory layout
-# (fruct/ and fruct-frontend/ as sibling directories).
+# `caddy`'s Caddyfile mount with the one in deploy/Caddyfile. That file is a
+# superset of the backend's own Caddyfile — it keeps {$DOMAIN} -> api:3001
+# (the backend's existing public domain, untouched) and adds a *separate*
+# {$FRONTEND_DOMAIN} -> frontend:3000 site block on the same shared
+# port 80/443 listener (TLS SNI routing — no new ports, no conflicts with
+# whatever else is already published on this host). `caddy` ends up depending
+# on both `api` and `frontend` being healthy. See README.md for the full
+# step-by-step, including the expected directory layout (fruct/ and
+# fruct-frontend/ as sibling directories).
 #
 # IMPORTANT: with multiple `-f` files, Compose resolves every relative path
 # (build context, bind mounts, env_file) against the FIRST file's directory
@@ -57,9 +61,15 @@ services:
     # this container over the compose network by its service name, exactly
     # like the backend's `api` service already does.
 
-  # Overrides the backend's Caddyfile mount (same target path) so the public
-  # domain is served by the frontend instead of talking to the API directly.
+  # Overrides the backend's Caddyfile mount (same target path, see
+  # deploy/Caddyfile) and adds FRONTEND_DOMAIN to caddy's environment so the
+  # new site block in that file can be filled in. `env_file` lists merge
+  # (rather than replace) across `-f` files, so the backend's own DOMAIN/
+  # ACME_EMAIL (set via `environment:` in docker-compose.prod.yml) are
+  # unaffected — verified with `docker compose config` against both files.
   caddy:
+    env_file:
+      - ../fruct-frontend/.env
     volumes:
       - ../fruct-frontend/deploy/Caddyfile:/etc/caddy/Caddyfile:ro
     depends_on:
