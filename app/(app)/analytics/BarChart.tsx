@@ -7,6 +7,13 @@ export interface BarDatum {
   value: number;
   /** Shown as the native SVG tooltip on hover/focus; defaults to "label: value". */
   title?: string;
+  /**
+   * When set, always rendered above the bar (e.g. a short secondary count) instead
+   * of the default formatted-value label, which is suppressed past MAX_LABELED_BARS
+   * to avoid clutter — a caller-supplied secondary label is short by construction
+   * and stays useful at any category count.
+   */
+  secondaryLabel?: string;
 }
 
 /** Categories beyond this count skip on-bar value labels (spec: selective labels, never one on every point) and fall back to the accompanying Table for exact figures. */
