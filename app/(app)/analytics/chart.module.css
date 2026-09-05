@@ -1,0 +1,27 @@
+.scrollWrap {
+  padding-bottom: var(--space-1);
+}
+
+.axisLine {
+  stroke: var(--border-default);
+  stroke-width: 1;
+}
+
+.bar {
+  transition: opacity 0.15s ease;
+}
+
+.bar:hover {
+  opacity: 0.85;
+}
+
+.axisLabel {
+  font-size: 9px;
+  fill: var(--text-secondary);
+}
+
+.valueLabel {
+  font-size: 9px;
+  font-weight: 600;
+  fill: var(--text-primary);
+}

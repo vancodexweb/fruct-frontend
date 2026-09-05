@@ -1,0 +1,67 @@
+# Adds the Fruct CRM frontend to the backend's existing production stack.
+#
+# This file is NOT meant to be run alone — the frontend calls the backend
+# over the Docker network by its service name (`api`), so it must run in the
+# same Compose project as vancodexweb/fruct's docker-compose.prod.yml. Deploy
+# both together with one command, from the *backend's* directory:
+#
+#   cd fruct
+#   docker compose -f docker-compose.prod.yml -f ../fruct-frontend/docker-compose.yml up -d --build
+#
+# This merges the two files into a single project (named after the backend's
+# directory, e.g. "fruct"): it adds the `frontend` service, and overrides
+# `caddy`'s Caddyfile mount with the one in deploy/Caddyfile (which proxies
+# to `frontend:3000` instead of directly to `api:3001`), so `caddy` ends up
+# depending on both `api` and `frontend` being healthy. See README.md for the
+# full step-by-step, including the expected directory layout
+# (fruct/ and fruct-frontend/ as sibling directories).
+#
+# IMPORTANT: with multiple `-f` files, Compose resolves every relative path
+# (build context, bind mounts, env_file) against the FIRST file's directory
+# (the "project directory" — here, fruct/), not against the file that
+# declares them (verified with `docker compose config`). That's why every
+# relative path below is written as `../fruct-frontend/...` rather than
+# `./...` — this file assumes the sibling-directory layout above.
+services:
+  frontend:
+    build:
+      context: ../fruct-frontend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ../fruct-frontend/.env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: 0.0.0.0
+      # Internal Docker network hostname of the backend's own `api` service
+      # (see vancodexweb/fruct's docker-compose.prod.yml) — never the public
+      # DOMAIN, this call never leaves the Docker network.
+      API_URL: http://api:3001
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:3000/api/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    # No published ports — Caddy is the only public entry point, reaching
+    # this container over the compose network by its service name, exactly
+    # like the backend's `api` service already does.
+
+  # Overrides the backend's Caddyfile mount (same target path) so the public
+  # domain is served by the frontend instead of talking to the API directly.
+  caddy:
+    volumes:
+      - ../fruct-frontend/deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
