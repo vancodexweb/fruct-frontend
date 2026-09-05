@@ -1,50 +1,45 @@
-# Adds the Fruct CRM frontend to the backend's existing production stack.
+# Fully standalone deployment for the Fruct CRM frontend — its own Caddy,
+# its own domain, no dependency on vancodexweb/fruct's compose files.
 #
-# This file is NOT meant to be run alone — the frontend calls the backend
-# over the Docker network by its service name (`api`), so it must run in the
-# same Compose project as vancodexweb/fruct's docker-compose.prod.yml. Deploy
-# both together with one command, from the *backend's* directory:
+# The only thing this stack needs from the backend is its Docker network
+# name, so this Caddy's `api` reverse proxy (see deploy/Caddyfile) can reach
+# the backend's `api` container by service name. Nothing here reads or
+# assumes a specific directory layout for the backend repo.
 #
-#   cd fruct
-#   docker compose -f docker-compose.prod.yml -f ../fruct-frontend/docker-compose.yml up -d --build
+#   docker compose up -d --build
 #
-# This merges the two files into a single project (named after the backend's
-# directory, e.g. "fruct"): it adds the `frontend` service, and overrides
-# `caddy`'s Caddyfile mount with the one in deploy/Caddyfile. That file is a
-# superset of the backend's own Caddyfile — it keeps {$DOMAIN} -> api:3001
-# (the backend's existing public domain, untouched) and adds a *separate*
-# {$FRONTEND_DOMAIN} -> frontend:3000 site block on the same shared
-# port 80/443 listener (TLS SNI routing — no new ports, no conflicts with
-# whatever else is already published on this host). `caddy` ends up depending
-# on both `api` and `frontend` being healthy. See README.md for the full
-# step-by-step, including the expected directory layout (fruct/ and
-# fruct-frontend/ as sibling directories).
+# IMPORTANT — port 80/443 conflict: this stack's `caddy` publishes 80/443,
+# same as the backend's own already-running Caddy. Two containers cannot
+# both bind the same host ports, so before running the command above, free
+# them by stopping the backend's Caddy — this new Caddy takes over BOTH
+# domains (see deploy/Caddyfile and BACKEND_DOMAIN below):
 #
-# IMPORTANT: with multiple `-f` files, Compose resolves every relative path
-# (build context, bind mounts, env_file) against the FIRST file's directory
-# (the "project directory" — here, fruct/), not against the file that
-# declares them (verified with `docker compose config`). That's why every
-# relative path below is written as `../fruct-frontend/...` rather than
-# `./...` — this file assumes the sibling-directory layout above.
+#   docker stop fruct-caddy-1
+#
+# IMPORTANT — network name: `networks.backend_net.name` below must match the
+# backend's actual Docker network. Verify with `docker network ls` — Compose
+# names a project's default network `<project>_default`; if the backend's
+# containers are named `fruct-api-1` etc., its project is "fruct" and the
+# network is (almost always) `fruct_default`. If `docker compose up` fails
+# with "network ... not found", update the name below to match.
 services:
   frontend:
     build:
-      context: ../fruct-frontend
+      context: .
       dockerfile: Dockerfile
     restart: unless-stopped
     env_file:
-      - ../fruct-frontend/.env
+      - .env
     environment:
       NODE_ENV: production
       PORT: 3000
       HOSTNAME: 0.0.0.0
-      # Internal Docker network hostname of the backend's own `api` service
-      # (see vancodexweb/fruct's docker-compose.prod.yml) — never the public
-      # DOMAIN, this call never leaves the Docker network.
+      # Internal Docker network hostname of the backend's `api` service —
+      # reachable because `frontend` joins the backend's own network below.
+      # Never the public BACKEND_DOMAIN — this call never leaves Docker.
       API_URL: http://api:3001
-    depends_on:
-      api:
-        condition: service_healthy
+    networks:
+      - backend_net
     healthcheck:
       test:
         [
@@ -58,20 +53,43 @@ services:
       retries: 5
       start_period: 15s
     # No published ports — Caddy is the only public entry point, reaching
-    # this container over the compose network by its service name, exactly
-    # like the backend's `api` service already does.
+    # this container over the shared Docker network by its service name.
 
-  # Overrides the backend's Caddyfile mount (same target path, see
-  # deploy/Caddyfile) and adds FRONTEND_DOMAIN to caddy's environment so the
-  # new site block in that file can be filled in. `env_file` lists merge
-  # (rather than replace) across `-f` files, so the backend's own DOMAIN/
-  # ACME_EMAIL (set via `environment:` in docker-compose.prod.yml) are
-  # unaffected — verified with `docker compose config` against both files.
   caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    # On hosts using systemd-resolved, Docker can copy the host's
+    # 127.0.0.53 stub resolver straight into the container's /etc/resolv.conf
+    # — that address is the container's own loopback, not the host's, so
+    # ACME's outbound DNS lookups fail with "connection refused" instead of
+    # reaching a real resolver. Pointing this container at public resolvers
+    # directly sidesteps the host's resolv.conf entirely.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     env_file:
-      - ../fruct-frontend/.env
+      - .env
     volumes:
-      - ../fruct-frontend/deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
     depends_on:
       frontend:
         condition: service_healthy
+    networks:
+      - backend_net
+    # No dependency on the backend's `api` container's health — it's managed
+    # by a separate, already-running Compose project this stack doesn't
+    # control. Caddy simply retries with a 502 until it's reachable.
+
+networks:
+  backend_net:
+    external: true
+    name: fruct_default
+
+volumes:
+  caddy_data:
+  caddy_config:

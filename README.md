@@ -52,77 +52,86 @@ npm run format       # Prettier --write
 
 ## 3. One-command production deployment
 
-The backend is already deployed via `docker-compose.prod.yml` + Caddy (see `vancodexweb/fruct`'s
-README). This frontend is designed to join that exact stack as one more service, sharing its
-Docker network, so a single `docker compose` invocation brings up the whole product (Postgres,
-Redis, the API, this frontend, and Caddy in front of all of it).
+This frontend deploys as a **fully standalone stack** — its own `docker compose` project, its own
+Caddy, its own domain. It does not read the backend's compose files, Caddyfile, or `.env`; the
+only thing it needs from the backend is the name of its Docker network, so this stack's Caddy can
+reverse-proxy to the backend's `api` container by service name.
 
-**Expected layout on the server — the two repos as sibling directories:**
-
-```
-/opt/fruct/                 (or wherever)
-├── fruct/                  ← backend repo (vancodexweb/fruct)
-│   ├── docker-compose.prod.yml
-│   ├── Caddyfile
-│   └── .env
-└── fruct-frontend/         ← this repo
-    ├── docker-compose.yml
-    ├── Dockerfile
-    ├── deploy/Caddyfile
-    └── .env
-```
+**Port 80/443 conflict — read this first.** The backend already runs its own Caddy bound to ports
+80/443. Two containers can't both bind the same host ports, so this stack's own Caddy needs those
+ports freed first — it then takes over **both** domains (the frontend's and the backend's):
 
 ```bash
-# One-time: clone both repos as siblings, then create each .env from its example
-git clone <backend-repo-url> fruct
+docker stop fruct-caddy-1   # or whatever the backend's Caddy container is actually named
+```
+
+This is a few seconds of downtime for the backend's public domain while the new stack starts, then
+both domains are served again — by the new Caddy instead.
+
+```bash
+# 1. Clone this repo — anywhere, no sibling-directory requirement
 git clone <this-repo-url> fruct-frontend
-cd fruct && cp .env.example .env   # fill in per the backend's own README
-cd ../fruct-frontend && cp .env.example .env   # see table below
-
-# Deploy everything with ONE command, run from the backend directory:
-cd ../fruct
-docker compose -f docker-compose.prod.yml -f ../fruct-frontend/docker-compose.yml up -d --build
+cd fruct-frontend
+cp .env.example .env
 ```
 
-This merges the two compose files into a single project: it adds the `frontend` service and
-overrides `caddy`'s Caddyfile mount with `fruct-frontend/deploy/Caddyfile` — a superset of the
-backend's own Caddyfile that keeps `{$DOMAIN} -> api:3001` (the backend's existing public domain,
-untouched) and adds a **separate** `{$FRONTEND_DOMAIN} -> frontend:3000` site block. Both domains
-are served by the one already-running Caddy container over the one already-published port 80/443
-— Caddy routes by TLS SNI/HTTP Host, so there's no new port to open and no conflict with the
-backend's existing setup. Caddy automatically issues each domain its own Let's Encrypt certificate
-the first time it's requested. `caddy` ends up depending on both `api` and `frontend` being
-healthy before it starts routing traffic.
+Edit `.env` — only three values matter for deployment (see the table below for the rest):
 
-This was verified end-to-end (not just read from the config): `docker compose config` against the
-real backend + frontend compose files confirms `DOMAIN`/`ACME_EMAIL` (from the backend's `.env`)
-and `FRONTEND_DOMAIN` (from this repo's `.env`) all land correctly on the merged `caddy` service
-with no duplicated ports, and a live two-upstream Caddy test confirmed both domains get their own
-certificate and route to the correct backend.
-
-Verify:
+```
+FRONTEND_DOMAIN=vancodex.tech        # your domain — DNS A/AAAA already pointed at this server
+BACKEND_DOMAIN=crm.vancodex.tech     # the backend's existing public domain
+ACME_EMAIL=admin@vancodex.tech       # for Let's Encrypt expiry notices
+```
 
 ```bash
-docker compose -f docker-compose.prod.yml -f ../fruct-frontend/docker-compose.yml ps
-docker compose -f docker-compose.prod.yml -f ../fruct-frontend/docker-compose.yml logs -f frontend
-curl -i https://<your-domain>/            # through Caddy
+# 2. Confirm the backend's Docker network name (almost always `<project>_default`;
+#    e.g. containers named fruct-api-1 mean the network is fruct_default)
+docker network ls
+
+# 3. If it isn't fruct_default, edit docker-compose.yml's `networks.backend_net.name`
+#    to match, then bring up the whole stack with ONE command:
+docker compose up -d --build
 ```
 
-To update after a `git pull` in either repo, re-run the same `up -d --build` command from
-`fruct/` — Compose rebuilds only the images whose context changed.
+Caddy issues certificates for both `FRONTEND_DOMAIN` and `BACKEND_DOMAIN` automatically on first
+request. `deploy/Caddyfile` has two site blocks: `{$FRONTEND_DOMAIN} -> frontend:3000` and
+`{$BACKEND_DOMAIN} -> api:3001` — the latter reaches the backend's `api` container because this
+stack's `caddy` and `frontend` services join the backend's network as an `external: true` network
+in `docker-compose.yml`. The frontend's own server-side code also talks to the backend over that
+same internal network (`API_URL=http://api:3001`, hardcoded), never over the public internet.
 
-### Frontend environment variables (`fruct-frontend/.env`)
+This exact design — external network join, dual-domain Caddy routing, and the real Next.js
+Docker build — was verified end-to-end with a live throwaway stack (a stub container standing in
+for the backend's `api`, real domains substituted with test ones using Caddy's internal CA):
+both domains got their own certificate, `front.test` correctly served the real built frontend,
+`crm.test` correctly reverse-proxied to the stub backend, and the frontend container could reach
+`api:3001` directly.
+
+Verify on your server:
+
+```bash
+docker compose ps
+docker compose logs -f caddy
+curl -i https://vancodex.tech/           # your frontend
+curl -i https://crm.vancodex.tech/       # your backend, now served by the same Caddy
+```
+
+To update after a `git pull`, re-run `docker compose up -d --build` from this repo's directory.
+
+### Frontend environment variables (`.env`)
 
 | Variable | Required | Meaning |
 |---|---|---|
 | `NODE_ENV` | yes | `production` in the deployed stack. |
 | `PORT` | yes | Port the Next.js server listens on inside its container (`3000`). |
 | `HOSTNAME` | yes | Interface to bind (`0.0.0.0` — required in Docker so the healthcheck and Caddy, a different container, can reach it). |
-| `API_URL` | only outside Docker | Base URL of the backend, **reachable from this server, never from the browser**. In the Docker stack this is hardcoded to `http://api:3001` by `docker-compose.yml` (the backend's own service name on the shared Compose network) — this `.env` value is only read by `npm run dev`/`npm run start` outside Docker, where it should be `http://localhost:3001`. |
-| `FRONTEND_DOMAIN` | yes (Docker only) | The public domain this frontend should be reachable at, e.g. `app.example.com`. Point its DNS A/AAAA record at the server before deploying — Caddy issues it its own certificate automatically, independent of whatever domain the backend already serves the API on. |
+| `API_URL` | only outside Docker | Base URL of the backend, **reachable from this server, never from the browser**. In the Docker stack this is hardcoded to `http://api:3001` by `docker-compose.yml` — this `.env` value is only read by `npm run dev`/`npm run start` outside Docker, where it should be `http://localhost:3001`. |
+| `FRONTEND_DOMAIN` | yes (Docker only) | The public domain this frontend should be reachable at, e.g. `vancodex.tech`. Point its DNS A/AAAA record at this server before deploying. |
+| `BACKEND_DOMAIN` | yes (Docker only) | The backend's existing public domain, e.g. `crm.vancodex.tech` — used only for this stack's Caddy config, so it can keep serving the API after taking over ports 80/443 from the backend's own Caddy. |
+| `ACME_EMAIL` | yes (Docker only) | Email Let's Encrypt/ZeroSSL uses for certificate-expiry notices. |
 
-Everything else (JWT secrets, SMTP, DeepSeek, the backend's own public `DOMAIN`, Postgres/Redis
-credentials) belongs to the backend's own `.env` and is never touched by this app.
+Everything else (JWT secrets, SMTP, DeepSeek, Postgres/Redis credentials) belongs to the backend's
+own `.env` and is never touched by this app.
 
 ## 4. Section-by-section overview
 
